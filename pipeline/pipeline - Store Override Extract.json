@@ -1,0 +1,275 @@
+{
+	"name": "pipeline - Store Override Extract",
+	"properties": {
+		"activities": [
+			{
+				"name": "Staging Data Store Override Extract",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Get To Date",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "Get From Date",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": {
+							"value": "@concat('SELECT\nP.SITE AS SITE,\nP.ARTICLE AS ARTICLE,\nU.ARTICLE_UOM AS ARTICLE_UOM,\nP.SUGG_FCST_QTY AS OVERR_FCST,\nTO_CHAR(P.FCST_DATE,','''YYYY-MM-DD''',')',' AS FCST_DATE\nFROM RC_OPERATIONAL.PROD_PLANNER_SUGG_FCST P\nINNER JOIN RC_MASTER.SITE_MASTER SM ON\n SM.SITE=P.SITE\nINNER JOIN RC_MASTER.ARTICLE_UOM U\nON\nP.ARTICLE=U.ARTICLE AND U.BASE_UOM_FLAG= ','''Y''',' AND U.DELETED_DATE IS NULL\nWHERE \n SM.SALES_ORG IN (1005,1030,2010)\nAND\nTO_CHAR(P.FCST_DATE,','''YYYY-MM-DD''',') > ','''',string(activity('Get From Date').output.firstrow.LastRunDate),''' AND TO_CHAR(P.FCST_DATE, ','''YYYY-MM-DD''',')  <=','''',string(activity('Get To Date').output.firstrow.GetToDate),'''')",
+							"type": "Expression"
+						},
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"sink": {
+						"type": "DelimitedTextSink",
+						"storeSettings": {
+							"type": "AzureBlobStorageWriteSettings",
+							"maxConcurrentConnections": 10
+						},
+						"formatSettings": {
+							"type": "DelimitedTextWriteSettings",
+							"quoteAllText": true,
+							"fileExtension": ".txt"
+						}
+					},
+					"enableStaging": false
+				}
+			},
+			{
+				"name": "Get To Date",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": "SELECT TO_CHAR(sysdate-1,'YYYY-MM-DD') \"GetToDate\", TO_CHAR(sysdate, 'YYYYmmddHHMISS') \"FileDateTimeStamp\"  FROM DUAL;",
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					}
+				}
+			},
+			{
+				"name": "Update Last Run Date In Parameter Blob",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Copy Store Override Blob To WDP",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": {
+							"value": "@concat('SELECT ' ,'''', string(activity('Get To Date').output.firstrow.GetToDate),''' AS \"LastRunDate\" FROM DUAL')",
+							"type": "Expression"
+						},
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"sink": {
+						"type": "DelimitedTextSink",
+						"storeSettings": {
+							"type": "AzureBlobStorageWriteSettings"
+						},
+						"formatSettings": {
+							"type": "DelimitedTextWriteSettings",
+							"quoteAllText": true,
+							"fileExtension": ".txt"
+						}
+					},
+					"enableStaging": false
+				}
+			},
+			{
+				"name": "Copy Data Store Override Extract",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Staging Data Store Override Extract",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "DelimitedTextSource",
+						"storeSettings": {
+							"type": "AzureBlobStorageReadSettings",
+							"recursive": true,
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "DelimitedTextReadSettings"
+						}
+					},
+					"sink": {
+						"type": "DelimitedTextSink",
+						"storeSettings": {
+							"type": "AzureBlobStorageWriteSettings",
+							"maxConcurrentConnections": 10
+						},
+						"formatSettings": {
+							"type": "DelimitedTextWriteSettings",
+							"quoteAllText": true,
+							"fileExtension": ".txt"
+						}
+					},
+					"enableStaging": false
+				}
+			},
+			{
+				"name": "Copy Store Override Blob To WDP",
+				"type": "AzureFunctionActivity",
+				"dependsOn": [
+					{
+						"activity": "Copy Data Store Override Extract",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"functionName": "fnUploadStoreOverrideToWDP",
+					"method": "POST",
+					"body": {
+						"value": "@concat('{\n\"AzFileName\":\"',pipeline().parameters.stagingAzDirectory,'/',pipeline().parameters.stagingAzFile,'_',activity('Get To Date').output.firstrow.FileDateTimeStamp,'.csv\",','\n\"AzStorageAccount\":\"https://ieaadfstorage.blob.core.windows.net\",\n\"AzContainerName\":\"',pipeline().parameters.stagingAzContainer,'\",\"WDPBucketName\":\"',pipeline().parameters.wdpBucketName,'\",\"WDPFileName\":\"',pipeline().parameters.wdpFile,'_',activity('Get To Date').output.firstrow.FileDateTimeStamp,'.csv\"}')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Get From Date",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "DelimitedTextSource",
+						"storeSettings": {
+							"type": "AzureBlobStorageReadSettings",
+							"recursive": true,
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "DelimitedTextReadSettings"
+						}
+					}
+				}
+			}
+		],
+		"parameters": {
+			"paramContainer": {
+				"type": "string",
+				"defaultValue": "iea-d-storeoverridestaging-aae"
+			},
+			"paramDirectory": {
+				"type": "string",
+				"defaultValue": "ADF Parameter Store Override"
+			},
+			"paramFile": {
+				"type": "string",
+				"defaultValue": "ADF_Retail_Insight_Store_Override_Extract_Last_Run_Date.param"
+			},
+			"stagingAzContainer": {
+				"type": "string",
+				"defaultValue": "iea-d-storeoverridestaging-aae"
+			},
+			"stagingAzDirectory": {
+				"type": "string",
+				"defaultValue": "Store Override Staging"
+			},
+			"stagingAzFile": {
+				"type": "string",
+				"defaultValue": "STAGING_ARTICLE_DAILY_SALES_FCST"
+			},
+			"retailinsightAzContainer": {
+				"type": "string",
+				"defaultValue": "wwaustoragecert"
+			},
+			"retailinsightAzDirectory": {
+				"type": "string",
+				"defaultValue": "fresh-inbound"
+			},
+			"retailinsightAzFile": {
+				"type": "string",
+				"defaultValue": "ADF_PROD_PLANNER_SUGG_STR_OVRDE_FCST"
+			},
+			"wdpBucketName": {
+				"type": "string",
+				"defaultValue": "adp-integeregration-inbound-dev"
+			},
+			"wdpFile": {
+				"type": "string",
+				"defaultValue": "ADF_RC_GCP_SITE_ARTICLE_DAILY_SALES_FCST"
+			}
+		},
+		"folder": {
+			"name": "Store Override Extract"
+		},
+		"annotations": [
+			"Store Override Extract"
+		],
+		"lastPublishTime": "2022-07-14T05:51:06Z"
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}
