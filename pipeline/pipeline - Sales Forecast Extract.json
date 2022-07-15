@@ -1,0 +1,175 @@
+{
+	"name": "pipeline - Sales Forecast Extract",
+	"properties": {
+		"activities": [
+			{
+				"name": "Copy Data Sales Forecast Extract",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Get To Date",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					},
+					{
+						"activity": "Get From Date",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": {
+							"value": "@concat('SELECT DISTINCT\nSTR.ACTV_STR_CD    AS SITE,\nAU.ACTV_ARTCL_CD   AS ARTICLE,\nAU.ACTV_UOM_CD     AS ARTICLE_UOM,\nTO_CHAR(TO_DATE(FCT.RPL_DTE_KEY,','''YYYYMMDD''','),','''YYYY-MM-DD''',') AS FCST_DATE,\nFCT.ADJ_ALC_TOT_FRCST AS FCST_VAL,\nTO_CHAR(SYSDATE,','''YYYY-MM-DD''',')','AS EXTRACT_DATE\nFROM\nRDM.FCT_FF_STR_ADT_TRL      FCT,\nRDM.DIT_RC_ARTCL_UOM_ACTV   AU,\nRDM.DIT_RC_SITE_STR_ACTV    STR,\nRDM.DIT_RC_SLS_ORG          SLS\nWHERE\n(FCT.RPL_DTE_KEY >','',string(activity('Get From Date').output.firstrow.LastRunDate),' AND FCT.RPL_DTE_KEY <= ',string(activity('Get To Date').output.firstrow.GetToDate),') AND FCT.SLS_ORG_IND = ','''S'''\n,' AND FCT.ACTV_ARTCL_UOM_KEY = AU.ACTV_ARTCL_UOM_KEY\nAND FCT.ACTV_STR_KEY = STR.ACTV_STR_KEY\nAND STR.ACTV_SLS_ORG_KEY = SLS.SLS_ORG_KEY\nAND FCT.EFF_DTE_SEQ = 1\nAND SLS.SLS_ORG_CD IN (1005,1030,2010);')",
+							"type": "Expression"
+						},
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"sink": {
+						"type": "DelimitedTextSink",
+						"storeSettings": {
+							"type": "AzureBlobStorageWriteSettings",
+							"maxConcurrentConnections": 10
+						},
+						"formatSettings": {
+							"type": "DelimitedTextWriteSettings",
+							"quoteAllText": true,
+							"fileExtension": ".txt"
+						}
+					},
+					"enableStaging": false
+				}
+			},
+			{
+				"name": "Get To Date",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": "SELECT TO_CHAR(sysdate-1,'YYYY-MM-DD') \"GetToDate\", TO_CHAR(sysdate, 'YYYYmmddHHMISS') \"FileDateTimeStamp\"  FROM DUAL;",
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					}
+				}
+			},
+			{
+				"name": "Get From Date",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "DelimitedTextSource",
+						"storeSettings": {
+							"type": "AzureBlobStorageReadSettings",
+							"recursive": true,
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "DelimitedTextReadSettings"
+						}
+					}
+				}
+			},
+			{
+				"name": "Update Last Run Date In Parameter Blob",
+				"type": "Copy",
+				"dependsOn": [
+					{
+						"activity": "Copy Data Sales Forecast Extract",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "OracleSource",
+						"oracleReaderQuery": {
+							"value": "@concat('SELECT ' , string(activity('Get To Date').output.firstrow.GetToDate),'\"LastRunDate\" FROM DUAL')",
+							"type": "Expression"
+						},
+						"partitionOption": "None",
+						"queryTimeout": "02:00:00"
+					},
+					"sink": {
+						"type": "DelimitedTextSink",
+						"storeSettings": {
+							"type": "AzureBlobStorageWriteSettings"
+						},
+						"formatSettings": {
+							"type": "DelimitedTextWriteSettings",
+							"quoteAllText": true,
+							"fileExtension": ".txt"
+						}
+					},
+					"enableStaging": false
+				}
+			}
+		],
+		"parameters": {
+			"retailinsightFile": {
+				"type": "string"
+			},
+			"retailinsightDirectory": {
+				"type": "string"
+			},
+			"retailinsightContainer": {
+				"type": "string"
+			},
+			"paramFile": {
+				"type": "string"
+			},
+			"paramDirectory": {
+				"type": "string"
+			},
+			"paramContainer": {
+				"type": "string"
+			}
+		},
+		"folder": {
+			"name": "Sales Forecast Extract"
+		},
+		"annotations": [
+			"Sales Forecast Extract"
+		],
+		"lastPublishTime": "2022-07-14T05:51:06Z"
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}
